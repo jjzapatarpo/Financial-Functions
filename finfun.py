@@ -15,7 +15,7 @@ import plotly.figure_factory as ff
 # CLASSES
 
 class Options:
-    
+
     def __init__ (self, s, k, vol, t, r, q=0, call_or_put='call', position='long'):
         self.s = s
         self.k = k
@@ -44,51 +44,79 @@ class Options:
     def delta(self):
         delta_call = math.exp(-self.q*self.t)*(norm.cdf(self.d1))
         delta_put = math.exp(-self.q*self.t)*(norm.cdf(self.d1)-1)
-        return [delta_call, delta_put]
+        if self.call_or_put == 'call':
+            output = delta_call
+        elif self.call_or_put == 'put':
+            output = delta_put
+        if self.position == 'short':
+            output = -output
+        return output
     
     def theta(self):
         theta_call = -((self.s*self.n_inv(self.d1)*self.vol*math.exp(-self.q*self.t))/(2*math.sqrt(self.t))) + self.q*self.s*norm.cdf(self.d1)*math.exp(-self.q*self.t) - self.r*self.k*math.exp(-self.r*self.t)*norm.cdf(self.d2)
         theta_put = -((self.s*self.n_inv(self.d1)*self.vol)/(2*math.sqrt(self.t))) - self.q*self.s*norm.cdf(-self.d1)*math.exp(-self.q*self.t) + self.r*self.k*math.exp(-self.r*self.t)*norm.cdf(-self.d2)
-        return [theta_call, theta_put]
+        if self.call_or_put == 'call':
+            output = theta_call
+        elif self.call_or_put == 'put':
+            output = theta_put
+        if self.position == 'short':
+            output = -output
+        return output
 
     def gamma(self):
         gamma = (self.n_inv(self.d1)*math.exp(-self.q*self.t))/(self.s*self.vol*math.sqrt(self.t))
+        if self.position == 'short':
+            gamma = -gamma
         return gamma
 
     def vega(self):
         vega = self.s*math.sqrt(self.t)*self.n_inv(self.d1)*math.exp(-self.q*self.t)
+        if self.position == 'short':
+            vega = -vega
         return vega
 
     def rho(self):
         rho_call = self.k*self.t*math.exp(-self.r*self.t)*norm.cdf(self.d2)
         rho_put = -self.k*self.t*math.exp(-self.r*self.t)*norm.cdf(-self.d2)
-        return [rho_call, rho_put]
+        if self.call_or_put == 'call':
+            output = rho_call
+        elif self.call_or_put == 'put':
+            output = rho_put
+        if self.position == 'short':
+            output = -output
+        return output
     
     def rho_foreign(self):
         rho_call = -self.t*math.exp(-self.q*self.t)*self.s*norm.cdf(self.d1) 
-        rho_put = -self.t*math.exp(-self.q*self.t)*self.s*norm.cdf(-self.d1)
-        return [rho_call, rho_put]
+        rho_put = self.t*math.exp(-self.q*self.t)*self.s*norm.cdf(-self.d1)
+        if self.call_or_put == 'call':
+            output = rho_call
+        elif self.call_or_put == 'put':
+            output = rho_put
+        if self.position == 'short':
+            output = -output
+        return output
     
-    def greeks(self, foreign=False):
+    def greeks(self, decimals=4, foreign=False):
         if foreign==False:
             output = {
-                'Delta':self.delta(),
-                'Theta':self.theta(),
-                'Gamma':self.gamma(),
-                'Vega':self.gamma(),
-                'Rho':self.rho()
+                'Delta':np.round(self.delta(), decimals),
+                'Theta':np.round(self.theta(), decimals),
+                'Gamma':np.round(self.gamma(), decimals),
+                'Vega':np.round(self.vega(), decimals),
+                'Rho':np.round(self.rho(), decimals)
             }
         else:
             output = {
-                'Delta':self.delta(),
-                'Theta':self.theta(),
-                'Gamma':self.gamma(),
-                'Vega':self.gamma(),
-                'Rho_domestic':self.rho(),
-                'Rho_foreign':self.rho_foreign()
+                'Delta':np.round(self.delta(), decimals),
+                'Theta':np.round(self.theta(), decimals),
+                'Gamma':np.round(self.gamma(), decimals),
+                'Vega':np.round(self.vega(), decimals),
+                'Rho_domestic':np.round(self.rho(), decimals),
+                'Rho_foreign':np.round(self.rho_foreign(), decimals)
             }
         return output
-
+    
 # FUNCTIONS
 
 def option_strategy(list_of_options, range_width=0.3):
@@ -203,34 +231,22 @@ def graph_greeks(greek, option_object, range_width=2.5):
     for i in price_range:   
         opt = Options(s=i, k=k, vol=vol, t=t, r=r, q=q, call_or_put=call_or_put, position=position)
         if greek=='delta':
-            if call_or_put=='call':
-                greek_value.append(opt.delta()[0])
-            elif call_or_put=='put':
-                greek_value.append(opt.delta()[1])
+            greek_value.append(opt.delta())
             title = 'Delta'
         elif greek=='gamma':
             greek_value.append(opt.gamma())
             title = 'Gamma'
         elif greek=='theta':
-            if call_or_put=='call':
-                greek_value.append(opt.theta()[0])
-            elif call_or_put=='put':
-                greek_value.append(opt.theta()[1])
+            greek_value.append(opt.theta())
             title = 'Theta'
         elif greek=='vega':
             greek_value.append(opt.vega())
             title = 'Vega'
         elif greek=='rho':
-            if call_or_put=='call':
-                greek_value.append(opt.rho()[0])
-            elif call_or_put=='put':
-                greek_value.append(opt.rho()[1])
+            greek_value.append(opt.rho())
             title = 'Rho'
         elif greek=='rho_foreign':
-            if call_or_put=='call':
-                greek_value.append(opt.rho_foreign()[0])
-            elif call_or_put=='put':
-                greek_value.append(opt.rho_foreign()[1])
+            greek_value.append(opt.rho_foreign())
             title = 'Rho foreign'        
     # We create and return the corresponding graph
     fig = go.Figure(data=[go.Scatter(name='Zero line', x=price_range, y=np.zeros(len(price_range)), line={'color':'gray', 'dash':'dash'}),
