@@ -9,32 +9,79 @@ import plotly.graph_objs as go
 import plotly.offline as po
 import plotly.figure_factory as ff
 
-# Updated: March 05, 2023
-# News when updated: function for bulding binomial trees to value both European and American options
+# Updated: March 19, 2023
+# News when updated: A whole update for better OOP functioning 
+
+# EXCEPTIONS
+class OptionTypeError(ValueError): pass
+class PositionError(ValueError): pass
 
 # CLASSES
 
 class Options:
+# AS A RULE: After creating an instance of this class (option object), don't change its attributes as an external value assignment (i.e., option_obj.s = new_spot).
+# Doing so will not update the respective values of d1 and d2, and every calculation that depends on such values will be wrong.
 
     def __init__ (self, s, k, vol, t, r, q=0, call_or_put='call', position='long'):
+        if call_or_put not in ['call','put']:
+            raise OptionTypeError("Choose a valid option type between 'call' and 'put'" )
+        if position not in ['long','short']:
+            raise PositionError("Choose a valid position for the option between 'long' and 'short'")
         self.s = s
         self.k = k
         self.vol = vol
         self.t = t
         self.r = r
         self.q = q
-        self.d1 = (math.log(s/k)+(r+(vol**2)/2)*t)/(vol*math.sqrt(t))
-        self.d2 = self.d1 - vol*math.sqrt(t)
+        self._d1 = (math.log(s/k)+(r+(vol**2)/2)*t)/(vol*math.sqrt(t))
+        self._d2 = self._d1 - vol*math.sqrt(t)
         self.call_or_put = call_or_put
         self.position = position
     
-    def n_inv(self, x):
+    def __eq__(self, other):
+        output = (self.s == other.s) and (self.k == other.k) and (self.vol == other.vol) and (self.t == other.t) and (self.r == other.r) and (self.q == other.q) and (self.call_or_put == other.call_or_put) and (self.position == other.position) and (type(self) == type(other))
+        return output
+    
+    def __str__(self):
+        output = f"""
+        European {self.call_or_put} option
+        Position: {self.position}
+            Spot price: {self.s}
+            Strike price: {self.k}
+            Implied volatility: {self.vol*100}%
+            Time to maturity (years): {self.t}
+            Risk-free rate: {self.r*100}%
+            Dividend rate (foreign rate): {self.q*100}%
+
+            Price: {np.round(self.bsm_valuation(), 4)}
+
+            GREEKS
+                Delta: {np.round(self.delta(), 4)}
+                Gamma: {np.round(self.gamma(), 4)}
+                Theta: {np.round(self.theta(), 4)} (Trading days)
+                Vega: {np.round(self.vega(), 4)}
+                Rho: {np.round(self.rho(), 4)}
+        """
+        return output
+
+    def __repr__(self):
+        output = f"Options(s={self.s}, k={self.k}, vol={self.vol}, t={self.t}, r={self.r}, q={self.q}, call_or_put='{self.call_or_put}', position='{self.position}')"
+        return output
+    
+    @property
+    def d1(self):
+        return self._d1
+    @property
+    def d2(self):
+        return self._d2
+    
+    def _n_inv(self, x):
         n = (1/math.sqrt(2*math.pi))*math.exp(-(x**2)/2)
         return n
     
     def bsm_valuation(self):
-        call_price = self.s*math.exp(-self.q*self.t)*norm.cdf(self.d1) - self.k*math.exp(-self.r*self.t)*norm.cdf(self.d2)
-        put_price = self.k*math.exp(-self.r*self.t)*norm.cdf(-self.d2) - self.s*math.exp(-self.q*self.t)*norm.cdf(-self.d1)
+        call_price = self.s*math.exp(-self.q*self.t)*norm.cdf(self._d1) - self.k*math.exp(-self.r*self.t)*norm.cdf(self._d2)
+        put_price = self.k*math.exp(-self.r*self.t)*norm.cdf(-self._d2) - self.s*math.exp(-self.q*self.t)*norm.cdf(-self._d1)
         if self.call_or_put == 'call':
             output = call_price
         elif self.call_or_put == 'put':
@@ -42,8 +89,8 @@ class Options:
         return output
     
     def delta(self):
-        delta_call = math.exp(-self.q*self.t)*(norm.cdf(self.d1))
-        delta_put = math.exp(-self.q*self.t)*(norm.cdf(self.d1)-1)
+        delta_call = math.exp(-self.q*self.t)*(norm.cdf(self._d1))
+        delta_put = math.exp(-self.q*self.t)*(norm.cdf(self._d1)-1)
         if self.call_or_put == 'call':
             output = delta_call
         elif self.call_or_put == 'put':
@@ -53,8 +100,8 @@ class Options:
         return output
     
     def theta(self):
-        theta_call = -((self.s*self.n_inv(self.d1)*self.vol*math.exp(-self.q*self.t))/(2*math.sqrt(self.t))) + self.q*self.s*norm.cdf(self.d1)*math.exp(-self.q*self.t) - self.r*self.k*math.exp(-self.r*self.t)*norm.cdf(self.d2)
-        theta_put = -((self.s*self.n_inv(self.d1)*self.vol)/(2*math.sqrt(self.t))) - self.q*self.s*norm.cdf(-self.d1)*math.exp(-self.q*self.t) + self.r*self.k*math.exp(-self.r*self.t)*norm.cdf(-self.d2)
+        theta_call = -((self.s*self._n_inv(self._d1)*self.vol*math.exp(-self.q*self.t))/(2*math.sqrt(self.t))) + self.q*self.s*norm.cdf(self._d1)*math.exp(-self.q*self.t) - self.r*self.k*math.exp(-self.r*self.t)*norm.cdf(self._d2)
+        theta_put = -((self.s*self._n_inv(self._d1)*self.vol)/(2*math.sqrt(self.t))) - self.q*self.s*norm.cdf(-self._d1)*math.exp(-self.q*self.t) + self.r*self.k*math.exp(-self.r*self.t)*norm.cdf(-self._d2)
         if self.call_or_put == 'call':
             output = theta_call
         elif self.call_or_put == 'put':
@@ -64,20 +111,20 @@ class Options:
         return output
 
     def gamma(self):
-        gamma = (self.n_inv(self.d1)*math.exp(-self.q*self.t))/(self.s*self.vol*math.sqrt(self.t))
+        gamma = (self._n_inv(self._d1)*math.exp(-self.q*self.t))/(self.s*self.vol*math.sqrt(self.t))
         if self.position == 'short':
             gamma = -gamma
         return gamma
 
     def vega(self):
-        vega = self.s*math.sqrt(self.t)*self.n_inv(self.d1)*math.exp(-self.q*self.t)
+        vega = self.s*math.sqrt(self.t)*self._n_inv(self._d1)*math.exp(-self.q*self.t)
         if self.position == 'short':
             vega = -vega
         return vega
 
     def rho(self):
-        rho_call = self.k*self.t*math.exp(-self.r*self.t)*norm.cdf(self.d2)
-        rho_put = -self.k*self.t*math.exp(-self.r*self.t)*norm.cdf(-self.d2)
+        rho_call = self.k*self.t*math.exp(-self.r*self.t)*norm.cdf(self._d2)
+        rho_put = -self.k*self.t*math.exp(-self.r*self.t)*norm.cdf(-self._d2)
         if self.call_or_put == 'call':
             output = rho_call
         elif self.call_or_put == 'put':
@@ -87,8 +134,8 @@ class Options:
         return output
     
     def rho_foreign(self):
-        rho_call = -self.t*math.exp(-self.q*self.t)*self.s*norm.cdf(self.d1) 
-        rho_put = self.t*math.exp(-self.q*self.t)*self.s*norm.cdf(-self.d1)
+        rho_call = -self.t*math.exp(-self.q*self.t)*self.s*norm.cdf(self._d1) 
+        rho_put = self.t*math.exp(-self.q*self.t)*self.s*norm.cdf(-self._d1)
         if self.call_or_put == 'call':
             output = rho_call
         elif self.call_or_put == 'put':
@@ -195,8 +242,8 @@ def option_strategy_graph(df, plot_title=''):
             traces.append(trace)
     layout = go.Layout(showlegend=True,
         legend={'x':1,'y':1},
-        width=800,
-        height=400,
+        width=900,
+        height=500,
         margin=dict(l=50,r=50,b=50,t=50),
         template='plotly_white',
         yaxis={'tickfont':{'size':10}, 'title':'Payoff'},
@@ -252,7 +299,7 @@ def graph_greeks(greek, option_object, range_width=2.5):
     fig = go.Figure(data=[go.Scatter(name='Zero line', x=price_range, y=np.zeros(len(price_range)), line={'color':'gray', 'dash':'dash'}),
                           go.Scatter(name=f'{title}', x=price_range, y=greek_value, line={'color':'RGB(39, 24, 126)'})],
                     layout=go.Layout(
-                        title=f'<b>{title}<b>',
+                        title=f'<b>{title}</b> for {position} {call_or_put} option',
                         width=900,
                         height=500,
                         template='plotly_white',
@@ -260,6 +307,7 @@ def graph_greeks(greek, option_object, range_width=2.5):
                         yaxis={'title':f'{title} values'},
                         xaxis={'title':'Spot prices'}))
     fig.add_vline(x=k, line_color='red')
+    fig.update_layout(xaxis_tickprefix = '$', yaxis_tickformat = ',.2f')
     po.iplot(fig)
 
 def binomial_tree(s, k, t, r, q, vol, n_steps, type_opt='european', call_put='call'):
