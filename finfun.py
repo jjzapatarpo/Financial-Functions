@@ -531,6 +531,215 @@ def option_strat_graph(df, plot_title=''):
     fig.update_layout(xaxis_tickprefix = '$', yaxis_tickformat = ',.2f')
     po.iplot(fig)
 
+def option_strat_price_payoff(list_of_options, price=True, range_width=0.5):
+    # Range creation
+    spot = list_of_options[0].s
+    start = spot*(1-range_width)
+    stop = spot*(1+range_width)
+    step = (stop-start)/10000
+    price_range = np.arange(start=start, stop=stop, step=step)
+    # DataFrame to be filled
+    df_options = pd.DataFrame(price_range).rename(columns={0:'price_range'})
+    if price == False:
+        for option in list_of_options:
+            # Parameters for payoff
+            k = option.k
+            opt_price = option.bsm_valuation()
+            position = option.position
+            call_or_put = option.call_or_put
+            # Payoff for long positions
+            if (position=='long')&(call_or_put=='call'):
+                payoff = [np.max([i-k,0])-opt_price for i in price_range]
+                title = 'Long Call'
+            elif (position=='long')&(call_or_put=='put'):
+                payoff = [np.max([k-i,0])-opt_price for i in price_range]
+                title = 'Long Put'
+            # Payoff for short positions
+            elif (position=='short')&(call_or_put=='call'):
+                payoff = [opt_price-np.max([i-k,0]) for i in price_range]
+                title = 'Short Call'
+            elif (position=='short')&(call_or_put=='put'):
+                payoff = [opt_price-np.max([k-i,0]) for i in price_range]
+                title = 'Short Put'
+            if title in df_options.columns:
+                sufx = str(df_options.columns.tolist().count(title)+1)
+                title = title+' '+sufx
+            df_options[f'{title}'] = payoff
+        df = df_options.copy()
+        df.set_index('price_range', inplace=True)
+        df['Strategy'] = df.sum(axis=1)
+        price_title = None
+    else:
+        # We create such DataFrame
+        df_price = df_options.copy()
+        for x,option in enumerate(list_of_options):
+            # Parameters for payoff and greeks
+            k = option.k
+            vol = option.vol
+            t = option.t
+            r = option.r
+            q = option.q
+            position = option.position
+            call_or_put = option.call_or_put
+            opt_price = option.bsm_valuation()
+            if (position=='long')&(call_or_put=='call'):
+                payoff = [np.max([i-k,0])-opt_price for i in price_range]
+                title = 'Long Call'
+            elif (position=='long')&(call_or_put=='put'):
+                payoff = [np.max([k-i,0])-opt_price for i in price_range]
+                title = 'Long Put'
+            elif (position=='short')&(call_or_put=='call'):
+                payoff = [opt_price-np.max([i-k,0]) for i in price_range]
+                title = 'Short Call'
+            elif (position=='short')&(call_or_put=='put'):
+                payoff = [opt_price-np.max([k-i,0]) for i in price_range]
+                title = 'Short Put'
+            if title in df_options.columns:
+                sufx = str(df_options.columns.tolist().count(title)+1)
+                title = title+' '+sufx
+            df_options[f'{title}'] = payoff
+            prices = []
+            for i in price_range:   
+                opt = Options(s=i, k=k, vol=vol, t=t, r=r, q=q, call_or_put=call_or_put, position=position)
+                if position=='long':
+                    prices.append(opt.bsm_valuation())
+                elif position=='short':
+                    prices.append(-opt.bsm_valuation())
+            df_price[f'{title}_{x}'] = prices
+        df_options.set_index('price_range', inplace=True)
+        df_options['Strategy'] = df_options.sum(axis=1)
+        df_price.set_index('price_range', inplace=True)
+        df_price['P&L'] = df_price.sum(axis=1)
+        prices_final_series = df_price['P&L'].values
+        df_options['P&L'] = prices_final_series
+        df = df_options.copy()
+        price_title = 'P&L'
+    return [df, price_title, 'RGB(219,72,173)', 'RGBA(219,72,173,0.1)']
+
+def price_payoff_graph(df, plot_title=''):
+    clr = df[2]
+    clr_fill = df[3]
+    if df[1] != None:
+        df = df[0]
+        colors = [
+            'RGB(39, 24, 126)', 
+            'RGB(117, 139, 253)', 
+            'RGB(174, 184, 254)',  
+            'RGB(71, 181, 255)',
+            'RGB(6, 40, 61)', 
+            'RGB(37, 109, 133)',
+        ]
+        traces = []
+        trace = go.Scatter(
+            x = df.index,
+            y = np.zeros(len(df)),
+            mode = 'lines',
+            name = 'Zero line option',
+            line = dict(width=1, dash='dash', color='black'),
+            opacity=0.7
+        )
+        traces.append(trace)
+        for x,i in enumerate(df.columns): 
+            if i == 'Strategy':
+                trace = go.Scatter(
+                    x = df.index,
+                    y = df.loc[:,i],
+                    mode = 'lines',
+                    name = i,
+                    line = dict(width=3, color=clr),
+                    fill='tozeroy',
+                    fillcolor=clr_fill
+                )
+                traces.append(trace)
+            elif i == 'P&L':
+                trace = go.Scatter(
+                    x = df.index,
+                    y = df.loc[:,i],
+                    mode = 'lines',
+                    name = i,
+                    line = dict(width=2, color='RGB(137,49,239)'),
+                )
+                traces.append(trace)
+            else:
+                trace = go.Scatter(
+                    x = df.index,
+                    y = df.loc[:,i],
+                    mode = 'lines',
+                    name = i,
+                    line = dict(width=1.2, color=colors[x]),
+                )
+                traces.append(trace)
+        layout = go.Layout(showlegend=True,
+            legend={'x':1.05,'y':1},
+            width=1000,
+            height=500,
+            margin=dict(l=50,r=100,b=50,t=90),
+            template='plotly_white',
+            yaxis={'tickfont':{'size':10}, 'title':'Price and Payoff'},
+            xaxis={'tickfont':{'size':10}, 'title':'Range of Spot prices'},
+            hovermode='x unified',
+            title={'text':f'<b>Option Strategy</b> - {plot_title}','xanchor':'left'},
+            titlefont={'size':18}
+        )
+    else:
+        df = df[0]
+        colors = [
+            'RGB(39, 24, 126)', 
+            'RGB(117, 139, 253)', 
+            'RGB(174, 184, 254)',  
+            'RGB(71, 181, 255)',
+            'RGB(6, 40, 61)', 
+            'RGB(37, 109, 133)',
+        ]
+        traces = []
+        trace = go.Scatter(
+            x = df.index,
+            y = np.zeros(len(df)),
+            mode = 'lines',
+            name = 'Zero line',
+            line = dict(width=1, dash='dash', color='black'),
+            opacity=0.7
+        )
+        traces.append(trace)
+        for x,i in enumerate(df.columns):
+            if i == 'Strategy':
+                trace = go.Scatter(
+                    x = df.index,
+                    y = df.loc[:,i],
+                    mode = 'lines',
+                    name = i,
+                    line = dict(width=3, color=clr),
+                    fill='tozeroy',
+                    fillcolor=clr_fill
+                )
+                traces.append(trace)
+            else:
+                trace = go.Scatter(
+                    x = df.index,
+                    y = df.loc[:,i],
+                    mode = 'lines',
+                    name = i,
+                    line = dict(width=1.2, color=colors[x]),
+                )
+                traces.append(trace)
+        layout = go.Layout(showlegend=True,
+            legend={'x':1,'y':1},
+            width=1000,
+            height=500,
+            margin=dict(l=50,r=100,b=50,t=90),
+            template='plotly_white',
+            yaxis={'tickfont':{'size':10}, 'title':'Payoff'},
+            xaxis={'tickfont':{'size':10}, 'title':'Range of Spot prices'},
+            hovermode='x unified',
+            title={'text':f'<b>Option Strategy</b> - {plot_title}','xanchor':'left'},
+            titlefont={'size':18}
+        )
+    po.init_notebook_mode(connected=True)
+    fig = go.Figure(data=traces, layout=layout)
+    fig.update_layout(yaxis_tickprefix = '$', yaxis_tickformat = ',.2f')
+    fig.update_layout(xaxis_tickprefix = '$', yaxis_tickformat = ',.2f')
+    po.iplot(fig) 
+
 def graph_greeks(greek, option_object, range_width=2.5):
     # We extract the attributes of the option
     s = option_object.s
