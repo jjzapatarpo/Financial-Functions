@@ -9,12 +9,14 @@ import plotly.graph_objs as go
 import plotly.offline as po
 import plotly.figure_factory as ff
 
-# Updated: March 19, 2023
-# News when updated: A whole update for better OOP functioning 
+# Updated: March 28, 2023
+# News when updated: two new functions to graph option strategies with a given greek 
 
 # EXCEPTIONS
+# We create our own exceptions (just for the fun of it), but they all inherit the characteristics of ValueError 
 class OptionTypeError(ValueError): pass
 class PositionError(ValueError): pass
+class GreekTypeError(ValueError): pass
 
 # CLASSES
 
@@ -143,7 +145,7 @@ class Options:
         if self.position == 'short':
             output = -output
         return output
-    
+
     def greeks(self, decimals=4, foreign=False):
         if foreign==False:
             output = {
@@ -252,6 +254,254 @@ def option_strategy_graph(df, plot_title=''):
         title={'text':f'<b>Option Strategy</b> - {plot_title}','xanchor':'left'},
         titlefont={'size':14}
     )
+    po.init_notebook_mode(connected=True)
+    fig = go.Figure(data=traces, layout=layout)
+    fig.update_layout(yaxis_tickprefix = '$', yaxis_tickformat = ',.2f')
+    fig.update_layout(xaxis_tickprefix = '$', yaxis_tickformat = ',.2f')
+    po.iplot(fig)
+
+def option_strategy_withGreek(list_of_options, greek=None, range_width=0.3):
+    if greek != None:
+        if greek not in ['delta','gamma','theta','vega','rho','rho_foreign']:
+            raise GreekTypeError("The greek to graph must be in ['delta','gamma','theta','vega','rho','rho_foreign']")
+    # Range creation
+    spot = list_of_options[0].s
+    start = spot*(1-range_width)
+    stop = spot*(1+range_width)
+    step = (stop-start)/10000
+    price_range = np.arange(start=start, stop=stop, step=step)
+    # DataFrame to be filled
+    df_options = pd.DataFrame(price_range).rename(columns={0:'price_range'})
+    if greek == None:
+        for option in list_of_options:    
+            # Parameters for payoff
+            k = option.k
+            price = option.bsm_valuation()
+            position = option.position
+            call_or_put = option.call_or_put
+            # Payoff for long positions
+            if (position=='long')&(call_or_put=='call'):
+                payoff = [np.max([i-k,0])-price for i in price_range]
+                title = 'Long Call'
+            elif (position=='long')&(call_or_put=='put'):
+                payoff = [np.max([k-i,0])-price for i in price_range]
+                title = 'Long Put'
+            # Payoff for short positions
+            elif (position=='short')&(call_or_put=='call'):
+                payoff = [price-np.max([i-k,0]) for i in price_range]
+                title = 'Short Call'
+            elif (position=='short')&(call_or_put=='put'):
+                payoff = [price-np.max([k-i,0]) for i in price_range]
+                title = 'Short Put'
+            if title in df_options.columns:
+                sufx = str(df_options.columns.tolist().count(title)+1)
+                title = title+' '+sufx
+            df_options[f'{title}'] = payoff
+        df = df_options.copy()
+        df.set_index('price_range', inplace=True)
+        df['Strategy'] = df.sum(axis=1)
+        title_gk = None
+    else:
+        # We create titles for the auxiliar Greeks DataFrame
+        if greek=='delta':
+            title_gk = 'Delta'
+        elif greek=='gamma':
+            title_gk = 'Gamma'
+        elif greek=='theta':
+            title_gk = 'Theta'
+        elif greek=='vega':
+            title_gk = 'Vega'
+        elif greek=='rho':
+            title_gk = 'Rho'
+        elif greek=='rho_foreign':
+            title_gk = 'Rho foreign'
+        # We create such DataFrame
+        df_greek = df_options.copy()
+        for x,option in enumerate(list_of_options):
+            # Parameters for payoff and greeks
+            k = option.k
+            vol = option.vol
+            t = option.t
+            r = option.r
+            q = option.q
+            position = option.position
+            call_or_put = option.call_or_put
+            price = option.bsm_valuation()
+            # Payoff for long positions
+            if (position=='long')&(call_or_put=='call'):
+                payoff = [np.max([i-k,0])-price for i in price_range]
+                title = 'Long Call'
+            elif (position=='long')&(call_or_put=='put'):
+                payoff = [np.max([k-i,0])-price for i in price_range]
+                title = 'Long Put'
+            # Payoff for short positions
+            elif (position=='short')&(call_or_put=='call'):
+                payoff = [price-np.max([i-k,0]) for i in price_range]
+                title = 'Short Call'
+            elif (position=='short')&(call_or_put=='put'):
+                payoff = [price-np.max([k-i,0]) for i in price_range]
+                title = 'Short Put'
+            if title in df_options.columns:
+                sufx = str(df_options.columns.tolist().count(title)+1)
+                title = title+' '+sufx
+            df_options[f'{title}'] = payoff
+            # Greek calculation
+            greek_value = []
+            for i in price_range:   
+                opt = Options(s=i, k=k, vol=vol, t=t, r=r, q=q, call_or_put=call_or_put, position=position)
+                if greek=='delta':
+                    greek_value.append(opt.delta())
+                elif greek=='gamma':
+                    greek_value.append(opt.gamma())
+                elif greek=='theta':
+                    greek_value.append(opt.theta())
+                elif greek=='vega':
+                    greek_value.append(opt.vega())
+                elif greek=='rho':
+                    greek_value.append(opt.rho())
+                elif greek=='rho_foreign':
+                    greek_value.append(opt.rho_foreign())
+            df_greek[f'{title_gk}_{x}'] = greek_value  
+        df_options.set_index('price_range', inplace=True)
+        df_options['Strategy'] = df_options.sum(axis=1)
+        df_greek.set_index('price_range', inplace=True)
+        df_greek[f'{title_gk}'] = df_greek.sum(axis=1)
+        greek_final_series = df_greek[f'{title_gk}'].values
+        df_options[f'{title_gk}'] = greek_final_series
+        df = df_options.copy()
+    return [df, greek, title_gk]
+
+def option_strategy_graph_withGreek(df, plot_title=''):
+    if df[1] != None:
+        greek_title = df[2]
+        df = df[0]
+        colors = [
+            'RGB(39, 24, 126)', 
+            'RGB(117, 139, 253)', 
+            'RGB(174, 184, 254)',  
+            'RGB(71, 181, 255)',
+            'RGB(6, 40, 61)', 
+            'RGB(37, 109, 133)',
+        ]
+        traces = []
+        trace = go.Scatter(
+            x = df.index,
+            y = np.zeros(len(df)),
+            mode = 'lines',
+            name = 'Zero line option',
+            line = dict(width=1, dash='dash', color='black'),
+            opacity=0.7
+        )
+        traces.append(trace)
+        trace = go.Scatter(
+            x = df.index,
+            y = np.zeros(len(df)),
+            yaxis='y2',
+            mode = 'lines',
+            name = 'Zero line greek',
+            line = dict(width=1, dash='dot', color='black'),
+            opacity=0.7
+        )
+        traces.append(trace)
+        for x,i in enumerate(df.columns): 
+            if i == 'Strategy':
+                trace = go.Scatter(
+                    x = df.index,
+                    y = df.loc[:,i],
+                    yaxis='y1',
+                    mode = 'lines',
+                    name = i,
+                    line = dict(width=3, color='RGB(255, 134, 0)'),
+                    fill='tozeroy',
+                    fillcolor='RGBA(255, 134, 0, 0.1)'
+                )
+                traces.append(trace)
+            elif i in ['Delta','Gamma','Theta','Vega','Rho','Rho foreign']:
+                trace = go.Scatter(
+                    x = df.index,
+                    y = df.loc[:,i],
+                    yaxis='y2',
+                    mode = 'lines',
+                    name = i,
+                    line = dict(width=2, color='RGB(137,49,239)'),
+                )
+                traces.append(trace)
+            else:
+                trace = go.Scatter(
+                    x = df.index,
+                    y = df.loc[:,i],
+                    yaxis='y1',
+                    mode = 'lines',
+                    name = i,
+                    line = dict(width=1.2, color=colors[x]),
+                )
+                traces.append(trace)
+        layout = go.Layout(showlegend=True,
+            legend={'x':1.05,'y':1},
+            width=1000,
+            height=500,
+            margin=dict(l=50,r=100,b=50,t=90),
+            template='plotly_white',
+            yaxis={'tickfont':{'size':10}, 'title':'Payoff'},
+            yaxis2={'overlaying':'y','side':'right','title':f'{greek_title}','showgrid':False},
+            xaxis={'tickfont':{'size':10}, 'title':'Range of Spot prices'},
+            hovermode='x unified',
+            title={'text':f'<b>Option Strategy</b> - {plot_title}','xanchor':'left'},
+            titlefont={'size':18}
+        )
+    else:
+        df = df[0]
+        colors = [
+            'RGB(39, 24, 126)', 
+            'RGB(117, 139, 253)', 
+            'RGB(174, 184, 254)',  
+            'RGB(71, 181, 255)',
+            'RGB(6, 40, 61)', 
+            'RGB(37, 109, 133)',
+        ]
+        traces = []
+        trace = go.Scatter(
+            x = df.index,
+            y = np.zeros(len(df)),
+            mode = 'lines',
+            name = 'Zero line',
+            line = dict(width=1, dash='dash', color='black'),
+            opacity=0.7
+        )
+        traces.append(trace)
+        for x,i in enumerate(df.columns):
+            if i == 'Strategy':
+                trace = go.Scatter(
+                    x = df.index,
+                    y = df.loc[:,i],
+                    mode = 'lines',
+                    name = i,
+                    line = dict(width=3, color='RGB(255, 134, 0)'),
+                    fill='tozeroy',
+                    fillcolor='RGBA(255, 134, 0, 0.1)'
+                )
+                traces.append(trace)
+            else:
+                trace = go.Scatter(
+                    x = df.index,
+                    y = df.loc[:,i],
+                    mode = 'lines',
+                    name = i,
+                    line = dict(width=1.2, color=colors[x]),
+                )
+                traces.append(trace)
+        layout = go.Layout(showlegend=True,
+            legend={'x':1,'y':1},
+            width=1000,
+            height=500,
+            margin=dict(l=50,r=100,b=50,t=90),
+            template='plotly_white',
+            yaxis={'tickfont':{'size':10}, 'title':'Payoff'},
+            xaxis={'tickfont':{'size':10}, 'title':'Range of Spot prices'},
+            hovermode='x unified',
+            title={'text':f'<b>Option Strategy</b> - {plot_title}','xanchor':'left'},
+            titlefont={'size':18}
+        )
     po.init_notebook_mode(connected=True)
     fig = go.Figure(data=traces, layout=layout)
     fig.update_layout(yaxis_tickprefix = '$', yaxis_tickformat = ',.2f')
